@@ -95,6 +95,28 @@ main{padding:18px 20px;max-width:1200px;margin:0 auto;}
 .coin-icon.btc{background:rgba(247,147,26,.1);border-color:rgba(247,147,26,.3);color:var(--btc);}
 .coin-icon.sol{background:rgba(153,69,255,.1);border-color:rgba(153,69,255,.3);color:var(--sol);}
 .coin-icon.bnb{background:rgba(243,186,47,.1);border-color:rgba(243,186,47,.3);color:var(--bnb);}
+.coin-icon.eth{background:rgba(98,126,234,.1);border-color:rgba(98,126,234,.3);color:#627eea;}
+.coin-icon.xrp{background:rgba(0,170,228,.1);border-color:rgba(0,170,228,.3);color:#00aae4;}
+.coin-icon.ada{background:rgba(0,51,173,.1);border-color:rgba(0,51,173,.3);color:#6699ff;}
+.coin-icon.doge{background:rgba(194,159,61,.1);border-color:rgba(194,159,61,.3);color:#c29f3d;}
+.coin-icon.avax{background:rgba(232,65,66,.1);border-color:rgba(232,65,66,.3);color:#e84142;}
+.coin-icon.dot{background:rgba(230,0,122,.1);border-color:rgba(230,0,122,.3);color:#e6007a;}
+.coin-icon.matic{background:rgba(130,71,229,.1);border-color:rgba(130,71,229,.3);color:#8247e5;}
+.coin-icon.link{background:rgba(55,91,210,.1);border-color:rgba(55,91,210,.3);color:#375bd2;}
+.coin-icon.ltc{background:rgba(191,191,191,.1);border-color:rgba(150,150,150,.3);color:#aaa;}
+.coin-icon.uni{background:rgba(255,0,122,.1);border-color:rgba(255,0,122,.3);color:#ff007a;}
+.coin-icon.atom{background:rgba(110,120,180,.1);border-color:rgba(110,120,180,.3);color:#8888cc;}
+.coin-icon.trx{background:rgba(255,6,10,.1);border-color:rgba(255,6,10,.3);color:#ff3333;}
+/* SLOT CONTROLS */
+.slot-controls{display:flex;align-items:center;gap:7px;margin-bottom:10px;}
+.slot-select{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;padding:6px 8px;font-family:var(--mono);font-size:12px;color:var(--text);outline:none;cursor:pointer;transition:border-color .2s;min-width:0;}
+.slot-select:focus{border-color:var(--amber);}
+.slot-toggle{background:transparent;border:1px solid var(--border2);border-radius:7px;padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0;}
+.slot-toggle:hover{border-color:var(--amber);color:var(--amber);}
+.slot-toggle.on{border-color:var(--green);color:var(--green);background:var(--green-bg);}
+.card.card-off{opacity:1;}
+.card-off-body{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 0;gap:8px;}
+.card-off-txt{font-family:var(--mono);font-size:11px;color:var(--dim);}
 .coin-name{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--text);}
 .coin-iv{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:1px;}
 .card-tr{display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
@@ -604,8 +626,9 @@ function checkPw(){
 }
 
 function startApp(){
+  loadSlots();
   loadCfg();
-  PAIRS.forEach(p=>openKlineWS(p));
+  getAllPairs().forEach(p=>openKlineWS(p));
   openTickerWS();
 }
 
@@ -614,12 +637,36 @@ if(sessionStorage.getItem('sc_auth')==='ok'){
   document.getElementById('pwScreen').style.display='none';
 }
 
-// ---- CONFIG ----
-const PAIRS=[
-  {sym:'BTC',id:'BTCUSDT',cls:'btc',dec:0},
-  {sym:'SOL',id:'SOLUSDT',cls:'sol',dec:2},
-  {sym:'BNB',id:'BNBUSDT',cls:'bnb',dec:1}
+// ---- AVAILABLE COINS ----
+const ALL_COINS={
+  BTC:{sym:'BTC',id:'BTCUSDT',cls:'btc',dec:0},
+  ETH:{sym:'ETH',id:'ETHUSDT',cls:'eth',dec:2},
+  SOL:{sym:'SOL',id:'SOLUSDT',cls:'sol',dec:2},
+  BNB:{sym:'BNB',id:'BNBUSDT',cls:'bnb',dec:1},
+  XRP:{sym:'XRP',id:'XRPUSDT',cls:'xrp',dec:4},
+  ADA:{sym:'ADA',id:'ADAUSDT',cls:'ada',dec:4},
+  DOGE:{sym:'DOGE',id:'DOGEUSDT',cls:'doge',dec:5},
+  AVAX:{sym:'AVAX',id:'AVAXUSDT',cls:'avax',dec:2},
+  DOT:{sym:'DOT',id:'DOTUSDT',cls:'dot',dec:3},
+  MATIC:{sym:'MATIC',id:'MATICUSDT',cls:'matic',dec:4},
+  LINK:{sym:'LINK',id:'LINKUSDT',cls:'link',dec:3},
+  LTC:{sym:'LTC',id:'LTCUSDT',cls:'ltc',dec:2},
+  UNI:{sym:'UNI',id:'UNIUSDT',cls:'uni',dec:3},
+  ATOM:{sym:'ATOM',id:'ATOMUSDT',cls:'atom',dec:3},
+  TRX:{sym:'TRX',id:'TRXUSDT',cls:'trx',dec:5},
+};
+
+// 3 slots: each has { coinSym, active }
+let slots=[
+  {coinSym:'BTC', active:true},
+  {coinSym:'SOL', active:true},
+  {coinSym:'BNB', active:true},
 ];
+
+// keep PAIRS as computed from active slots for compatibility
+function getActivePairs(){ return slots.filter(s=>s.active).map(s=>ALL_COINS[s.coinSym]).filter(Boolean); }
+// for WS we always open for all slots (active or not won't matter — we manage display)
+function getAllPairs(){ return slots.map(s=>ALL_COINS[s.coinSym]).filter(Boolean); }
 
 let TP_PCT=0.008, SL_PCT=0.006, currentIv='1m';
 let prevSignals={}, logItems=[], volHistory={};
@@ -881,7 +928,81 @@ function drawCandles(canvasId,candles,sigCls){
 }
 
 // ---- RENDER ----
-function renderCard(pair){
+function buildCoinSelect(slotIdx){
+  const cur=slots[slotIdx].coinSym;
+  const opts=Object.keys(ALL_COINS).map(k=>`<option value="${k}" ${k===cur?'selected':''}>${k}/USDT</option>`).join('');
+  return`<select class="slot-select" onchange="changeSlotCoin(${slotIdx},this.value)">${opts}</select>`;
+}
+
+function renderSlot(slot, idx){
+  const pair=ALL_COINS[slot.coinSym];
+  const isOn=slot.active;
+  const toggleBtn=`<button class="slot-toggle ${isOn?'on':''}" onclick="toggleSlot(${idx})">${isOn?'● ON':'○ OFF'}</button>`;
+  const selectHTML=buildCoinSelect(idx);
+  const controls=`<div class="slot-controls">${selectHTML}${toggleBtn}</div>`;
+
+  if(!isOn){
+    return`<div class="card card-off">
+      ${controls}
+      <div class="card-off-body">
+        <div style="font-size:22px;opacity:.3">⏸</div>
+        <div class="card-off-txt">Card apagada</div>
+      </div>
+    </div>`;
+  }
+  if(!pair) return`<div class="card">${controls}<div class="card-off-body"><div class="card-off-txt">Moneda no disponible</div></div></div>`;
+  return renderCard(pair, idx, controls);
+}
+
+function toggleSlot(idx){
+  slots[idx].active=!slots[idx].active;
+  saveSlots();
+  // reconnect WS for that coin if turning on
+  if(slots[idx].active){
+    const pair=ALL_COINS[slots[idx].coinSym];
+    if(pair&&!candleStore[pair.sym]){
+      readyCount=0;
+      reconnect();
+      return;
+    }
+  }
+  renderAll();
+}
+
+function changeSlotCoin(idx, coinSym){
+  const oldPair=ALL_COINS[slots[idx].coinSym];
+  slots[idx].coinSym=coinSym;
+  saveSlots();
+  // close old WS if no other slot uses it
+  const stillUsed=slots.some((s,i)=>i!==idx&&s.coinSym===oldPair?.sym);
+  if(!stillUsed&&oldPair&&wsKline[oldPair.sym]){
+    try{wsKline[oldPair.sym].onclose=null;wsKline[oldPair.sym].close();}catch(e){}
+    delete wsKline[oldPair.sym];
+    delete candleStore[oldPair.sym];
+  }
+  // open new WS
+  const newPair=ALL_COINS[coinSym];
+  if(newPair&&!wsKline[newPair.sym]){
+    readyCount=0;
+    reconnect();
+  } else {
+    renderAll();
+  }
+}
+
+function saveSlots(){
+  try{localStorage.setItem('sc_slots',JSON.stringify(slots.map(s=>({c:s.coinSym,a:s.active}))));}catch(e){}
+}
+function loadSlots(){
+  try{
+    const s=JSON.parse(localStorage.getItem('sc_slots')||'[]');
+    if(s.length===3){
+      slots=s.map(x=>({coinSym:x.c||'BTC',active:x.a!==false}));
+    }
+  }catch(e){}
+}
+
+function renderCard(pair, slotIdx, controls=''){
   const candles=candleStore[pair.sym]||[];
   const closes=candles.map(c=>c.c);
   const price=lastPrices[pair.sym]||0;
@@ -933,6 +1054,7 @@ function renderCard(pair){
 
   return`
     <div class="card sig-${cls}">
+      ${controls}
       <div class="card-top">
         <div class="coin-info">
           <div class="coin-icon ${pair.cls}">${pair.sym}</div>
@@ -958,7 +1080,7 @@ function renderCard(pair){
       ${fibHTML}
       <div class="chart-wrap">
         <div class="chart-lbl"><span>Velas ${ivLabel} · últimas 40</span><span>Vol: ${fmtV(currentVol)}</span></div>
-        <canvas class="cc" id="chart-${pair.sym}"></canvas>
+        <canvas class="cc" id="chart-${slotIdx}"></canvas>
       </div>
       <div class="inds-title">Indicadores</div>
       <div class="inds-grid">
@@ -974,18 +1096,21 @@ function renderCard(pair){
 }
 
 function renderAll(){
-  if(readyCount<PAIRS.length) return;
-  const html=PAIRS.map(p=>renderCard(p)).join('');
+  if(readyCount<getAllPairs().length) return;
+  const html=slots.map((slot,idx)=>renderSlot(slot,idx)).join('');
   if(!html.trim()) return;
   document.getElementById('cards').innerHTML=html;
   requestAnimationFrame(()=>{
-    PAIRS.forEach(p=>{
-      const candles=candleStore[p.sym]||[];
+    slots.forEach((slot,idx)=>{
+      if(!slot.active) return;
+      const pair=ALL_COINS[slot.coinSym];
+      if(!pair) return;
+      const candles=candleStore[pair.sym]||[];
       const closes=candles.map(c=>c.c);
-      const price=lastPrices[p.sym]||0;
+      const price=lastPrices[pair.sym]||0;
       if(!closes.length||!price) return;
       const{cls}=getSignal(rsi(closes),macd(closes),price,ma(closes,20));
-      drawCandles(`chart-${p.sym}`,candles,cls);
+      drawCandles(`chart-${idx}`,candles,cls);
     });
   });
   updateSim();
@@ -995,22 +1120,25 @@ function renderAll(){
 }
 
 function checkSignals(){
-  PAIRS.forEach(p=>{
-    const candles=candleStore[p.sym]||[];
+  slots.forEach(slot=>{
+    if(!slot.active) return;
+    const pair=ALL_COINS[slot.coinSym];
+    if(!pair) return;
+    const candles=candleStore[pair.sym]||[];
     const closes=candles.map(c=>c.c);
-    const price=lastPrices[p.sym]||0;
+    const price=lastPrices[pair.sym]||0;
     if(!closes.length||!price) return;
     const{sig,cls}=getSignal(rsi(closes),macd(closes),price,ma(closes,20));
     const currentVol=candles.length?candles[candles.length-1].v:0;
-    const{ok:volOk}=checkVol(p.sym,currentVol);
-    const prev=prevSignals[p.sym];
+    const{ok:volOk}=checkVol(pair.sym,currentVol);
+    const prev=prevSignals[pair.sym];
     if(prev!==undefined&&prev!==sig&&(sig==='COMPRAR'||sig==='VENDER')){
-      sendAlert(p.sym,sig,price,p.dec,volOk);
-      addLog(p.sym,cls,sig,price,p.dec,volOk);
+      sendAlert(pair.sym,sig,price,pair.dec,volOk);
+      addLog(pair.sym,pair.cls,sig,price,pair.dec,volOk);
     } else if(prev===undefined&&(sig==='COMPRAR'||sig==='VENDER')){
-      addLog(p.sym,cls,sig,price,p.dec,volOk);
+      addLog(pair.sym,pair.cls,sig,price,pair.dec,volOk);
     }
-    prevSignals[p.sym]=sig;
+    prevSignals[pair.sym]=sig;
   });
 }
 
@@ -1054,7 +1182,7 @@ function openKlineWS(pair){
         }));
         if(!lastPrices[pair.sym]) lastPrices[pair.sym]=parseFloat(klines[klines.length-1][4]);
         readyCount++;
-        if(readyCount>=PAIRS.length){
+        if(readyCount>=getAllPairs().length){
           document.getElementById('liveLabel').textContent='LIVE · Binance WS';
           renderAll();
         }
@@ -1085,7 +1213,7 @@ function openKlineWS(pair){
       else arr.push(candle);
     }
     lastPrices[pair.sym]=candle.c;
-    if(readyCount>=PAIRS.length) renderAll();
+    if(readyCount>=getAllPairs().length) renderAll();
   };
 
   ws.onerror=()=>{
@@ -1093,13 +1221,14 @@ function openKlineWS(pair){
   };
 
   ws.onclose=()=>{
-    // auto-reconnect after 3s
     setTimeout(()=>{if(wsKline[pair.sym]===ws) openKlineWS(pair);},3000);
   };
 }
 
 function openTickerWS(){
-  const streams=PAIRS.map(p=>`${p.id.toLowerCase()}@ticker`).join('/');
+  const pairs=getAllPairs();
+  if(!pairs.length) return;
+  const streams=pairs.map(p=>`${p.id.toLowerCase()}@ticker`).join('/');
   const url=`wss://stream.binance.com:9443/stream?streams=${streams}`;
   const ws=new WebSocket(url);
   wsTicker=ws;
@@ -1107,7 +1236,7 @@ function openTickerWS(){
     const d=JSON.parse(e.data);
     const t=d.data;
     if(!t) return;
-    const pair=PAIRS.find(p=>p.id===t.s);
+    const pair=Object.values(ALL_COINS).find(p=>p.id===t.s);
     if(pair){
       lastChange[pair.sym]=parseFloat(t.P);
       lastPrices[pair.sym]=parseFloat(t.c);
@@ -1117,15 +1246,14 @@ function openTickerWS(){
 }
 
 function reconnect(){
-  // close all existing
-  Object.values(wsKline).forEach(ws=>{try{ws.onclose=null;ws.close();}catch(e){} });
+  Object.values(wsKline).forEach(ws=>{try{ws.onclose=null;ws.close();}catch(e){}});
   if(wsTicker){try{wsTicker.onclose=null;wsTicker.close();}catch(e){}}
   wsKline={};wsTicker=null;
   candleStore={};readyCount=0;prevSignals={};
   document.getElementById('cards').innerHTML=`<div class="loading-screen"><span class="spin" style="font-size:22px">↻</span><p>Reconectando...</p></div>`;
   document.getElementById('liveLabel').textContent='Conectando...';
   setTimeout(()=>{
-    PAIRS.forEach(p=>openKlineWS(p));
+    getAllPairs().forEach(p=>openKlineWS(p));
     openTickerWS();
   },500);
 }
