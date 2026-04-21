@@ -296,6 +296,38 @@ canvas.cc{display:block;width:100%;height:90px;border-radius:6px;background:var(
 .warn-final{background:var(--bg2);border:1px solid var(--red-border);border-radius:10px;padding:15px;margin-top:20px;text-align:center;}
 .warn-final p{font-size:13px;color:var(--muted);line-height:1.7;}
 .warn-final b{color:var(--red);}
+/* HISTORIAL */
+.hist-panel{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+.hist-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+.hist-title{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;}
+.hist-actions{display:flex;gap:6px;}
+.hist-btn{background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;font-family:var(--mono);font-size:10px;color:var(--dim);cursor:pointer;transition:all .2s;}
+.hist-btn:hover{border-color:var(--amber);color:var(--amber);}
+.hist-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+@media(max-width:580px){.hist-stats{grid-template-columns:1fr 1fr;}}
+.hstat{background:var(--bg3);border-radius:8px;padding:8px 10px;text-align:center;border:1px solid var(--border);}
+.hstat-lbl{font-family:var(--mono);font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;}
+.hstat-val{font-family:var(--mono);font-size:15px;font-weight:500;}
+.hstat-val.g{color:var(--green);}
+.hstat-val.r{color:var(--red);}
+.hstat-val.n{color:var(--muted);}
+.hist-list{display:flex;flex-direction:column;gap:5px;max-height:240px;overflow-y:auto;}
+.hist-list::-webkit-scrollbar{width:3px;}
+.hist-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.hist-item{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;padding:7px 10px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);}
+.hist-item.win{border-color:rgba(0,230,118,.2);background:rgba(0,230,118,.03);}
+.hist-item.loss{border-color:rgba(255,68,68,.2);background:rgba(255,68,68,.03);}
+.hi-icon{font-size:14px;flex-shrink:0;}
+.hi-time{color:var(--dim);font-size:10px;min-width:42px;}
+.hi-coin{font-weight:500;min-width:38px;}
+.hi-res{font-weight:600;min-width:64px;}
+.hi-res.g{color:var(--green);}
+.hi-res.r{color:var(--red);}
+.hi-detail{color:var(--dim);font-size:10px;flex:1;}
+.hi-usd{font-weight:500;margin-left:auto;}
+.hi-usd.g{color:var(--green);}
+.hi-usd.r{color:var(--red);}
+.hist-empty{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;padding:20px;}
 </style>
 </head>
 <body>
@@ -402,6 +434,24 @@ canvas.cc{display:block;width:100%;height:90px;border-radius:6px;background:var(
       <button class="op-cancel" onclick="hideOpModal()">Cancelar</button>
     </div>
   </div>
+  <!-- HISTORIAL DE OPERACIONES -->
+  <div class="hist-panel">
+    <div class="hist-header">
+      <span class="hist-title">📋 Historial de operaciones</span>
+      <div class="hist-actions">
+        <button class="hist-btn" onclick="exportHist()">↓ CSV</button>
+        <button class="hist-btn" onclick="clearHist()">Limpiar</button>
+      </div>
+    </div>
+    <div class="hist-stats">
+      <div class="hstat"><div class="hstat-lbl">Total</div><div class="hstat-val n" id="hTotal">0</div></div>
+      <div class="hstat"><div class="hstat-lbl">% Ganadoras</div><div class="hstat-val g" id="hWin">—</div></div>
+      <div class="hstat"><div class="hstat-lbl">P&amp;L total</div><div class="hstat-val n" id="hPnl">$0.00</div></div>
+      <div class="hstat"><div class="hstat-lbl">Mejor op</div><div class="hstat-val g" id="hBest">—</div></div>
+    </div>
+    <div class="hist-list" id="histList"><div class="hist-empty">Las operaciones cerradas aparecerán acá</div></div>
+  </div>
+
   <div class="status-bar">
     <div style="display:flex;align-items:center;gap:12px;">
       <div class="live-badge"><span class="live-dot"></span><span id="liveLabel">Conectando...</span></div>
@@ -462,7 +512,7 @@ var candles={},price={},change={},volH={},prevSig={},logItems=[];
 var wsK={},wsT=null,readyN=0;
 var aCtx=null,sndOn=false,ntfOn=false,banTimer=null;
 var onHelp=false;
-var ops=[],opId=0;
+var ops=[],opId=0,hist=[];
 
 // PASSWORD
 function checkPw(){
@@ -689,10 +739,14 @@ function closeOp(id,type){
   var elapsed=Math.round((new Date()-op.t)/60000);
   var dec=pair?pair.dec:2;
   var win=pnlUsd>=0;
-  var msg=op.coin+(win?' cerrada con ganancia':' cerrada con pérdida')+': '+(win?'+$':'-$')+Math.abs(pnlUsd).toFixed(2)+' ('+Math.abs(pnlPct).toFixed(2)+'%) en '+elapsed+' min';
+  // save to history
+  hist.unshift({time:new Date().toTimeString().slice(0,5),date:new Date().toLocaleDateString('es-AR'),coin:op.coin,win:win,pnlPct:pnlPct,pnlUsd:pnlUsd,entry:op.buy,exit:cur,dur:elapsed,cap:op.cap,dec:dec,strat:op.strat});
+  if(hist.length>200)hist.pop();
+  saveHist();
   addLog(op.coin,pair?pair.cls:'',win?'CERRADA ✓':'CERRADA ✗',cur,dec,true);
   ops=ops.filter(function(o){return o.id!==id;});
   renderOps();
+  renderHist();
 }
 
 function renderOps(){
@@ -725,6 +779,55 @@ function renderOps(){
       +'<div class="op-btns"><button class="op-btn-w" onclick="closeOp('+op.id+',\'tp\')">✓ Cerrar ganando</button><button class="op-btn-l" onclick="closeOp('+op.id+',\'sl\')">✗ Cerrar perdiendo</button></div>'
       +'</div>';
   }).join('');
+}
+
+// HISTORIAL
+function saveHist(){try{localStorage.setItem('sc_hist',JSON.stringify(hist));}catch(e){}}
+function loadHist(){try{var h=JSON.parse(localStorage.getItem('sc_hist')||'[]');hist=h;}catch(e){hist=[];}}
+
+function renderHist(){
+  var total=hist.length;
+  var wins=hist.filter(function(h){return h.win;}).length;
+  var totalPnl=hist.reduce(function(a,h){return a+h.pnlUsd;},0);
+  var best=hist.length?hist.reduce(function(a,b){return a.pnlPct>b.pnlPct?a:b;}):null;
+  document.getElementById('hTotal').textContent=total;
+  var winEl=document.getElementById('hWin');
+  winEl.textContent=total?Math.round(wins/total*100)+'%':'—';
+  winEl.className='hstat-val '+(total?(wins/total>=0.5?'g':'r'):'n');
+  var pnlEl=document.getElementById('hPnl');
+  pnlEl.textContent=(totalPnl>=0?'+$':'-$')+Math.abs(totalPnl).toFixed(2);
+  pnlEl.className='hstat-val '+(totalPnl>=0?'g':'r');
+  document.getElementById('hBest').textContent=best?(best.pnlPct>=0?'+':'')+best.pnlPct.toFixed(2)+'%':'—';
+  var el=document.getElementById('histList');
+  if(!hist.length){el.innerHTML='<div class="hist-empty">Las operaciones cerradas aparecerán acá</div>';return;}
+  el.innerHTML=hist.map(function(h){
+    return'<div class="hist-item '+(h.win?'win':'loss')+'">'
+      +'<span class="hi-icon">'+(h.win?'🎯':'📉')+'</span>'
+      +'<span class="hi-time">'+h.time+'</span>'
+      +'<span class="hi-coin">'+h.coin+'</span>'
+      +'<span class="hi-res '+(h.win?'g':'r')+'">'+(h.pnlPct>=0?'+':'')+h.pnlPct.toFixed(2)+'%</span>'
+      +'<span class="hi-detail">'+h.dur+'min · $'+fmt(h.entry,h.dec)+' → $'+fmt(h.exit,h.dec)+'</span>'
+      +'<span class="hi-usd '+(h.win?'g':'r')+'">'+(h.pnlUsd>=0?'+$':'-$')+Math.abs(h.pnlUsd).toFixed(2)+'</span>'
+      +'</div>';
+  }).join('');
+}
+
+function clearHist(){
+  if(!hist.length)return;
+  if(!confirm('¿Borrar todo el historial?'))return;
+  hist=[];saveHist();renderHist();
+}
+
+function exportHist(){
+  if(!hist.length){alert('No hay historial para exportar.');return;}
+  var rows=['Fecha,Hora,Moneda,Resultado,P&L %,P&L USD,Entrada,Salida,Duración (min),Capital,Estrategia'];
+  hist.forEach(function(h){
+    rows.push([h.date,h.time,h.coin,h.win?'Ganancia':'Pérdida',(h.pnlPct>=0?'+':'')+h.pnlPct.toFixed(3),(h.pnlUsd>=0?'+':'')+h.pnlUsd.toFixed(2),h.entry,h.exit,h.dur,h.cap,h.strat||'auto'].join(','));
+  });
+  var blob=new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download='scalping_historial.csv';a.click();
+  URL.revokeObjectURL(url);
 }
 
 // WEBSOCKET
@@ -772,6 +875,8 @@ function toggleHelp(){onHelp=!onHelp;document.getElementById('appPage').classLis
 // START
 function startApp(){
   loadCfg();
+  loadHist();
+  renderHist();
   getUniq().forEach(function(p){openWS(p);});
   openTicker();
   setInterval(renderOps,2000);
