@@ -599,10 +599,65 @@ function ema(a,p){if(a.length<p)return null;var k=2/(p+1),e=a.slice(0,p).reduce(
 function rsi(c,p){p=p||14;if(c.length<p+1)return null;var g=0,l=0,s=c.slice(c.length-p-1);for(var i=1;i<s.length;i++){var d=s[i]-s[i-1];d>0?g+=d:l-=d;}var ag=g/p,al=l/p;if(al===0)return 100;return 100-100/(1+ag/al);}
 function macd(c){var e12=ema(c,12),e26=ema(c,26);if(!e12||!e26)return null;return e12-e26;}
 function sma(c,p){if(c.length<p)return null;return c.slice(-p).reduce(function(a,b){return a+b;},0)/p;}
-function getSig(r,m,pr,m20){var s=0;if(r!==null){if(r<35)s+=2;else if(r<45)s+=1;else if(r>65)s-=2;else if(r>55)s-=1;}if(m!==null){s+=m>0?1:-1;}if(m20!==null){s+=pr>m20*1.001?1:pr<m20*0.999?-1:0;}var str=Math.min(Math.abs(s),4);if(s>=2)return{sig:'COMPRAR',cls:'c',icon:'▲',str:str};if(s<=-2)return{sig:'VENDER',cls:'v',icon:'▼',str:str};return{sig:'ESPERAR',cls:'e',icon:'◆',str:str};}
+
+// NUEVO SISTEMA DE SEÑALES: RSI + Volumen como base, Fibonacci como confirmación
+// Reglas:
+//   COMPRAR: RSI < 35 (sobrevendido) + volumen sobre promedio
+//   VENDER:  RSI > 65 (sobrecomprado) + volumen sobre promedio
+//   ESPERAR: todo lo demás — incluso si RSI dice algo pero el volumen es bajo
+// Fibonacci: si el precio está en un nivel clave (38.2%, 50%, 61.8%), la señal se confirma
+// Resultado: menos señales, pero cada una que aparece tiene respaldo real
+
+function getSig(closes,volumes,pr,fibs){
+  // necesitamos al menos 15 cierres
+  if(!closes||closes.length<15||!pr) return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:'Datos insuficientes'};
+
+  var r=rsi(closes);
+  if(r===null) return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:'Calculando RSI...'};
+
+  // volumen: comparar última vela con promedio de 20
+  var volOk=false,volRatio=0;
+  if(volumes&&volumes.length>=5){
+    var avg=volumes.slice(-20).reduce(function(a,b){return a+b;},0)/Math.min(20,volumes.length);
+    var cur=volumes[volumes.length-1];
+    volRatio=avg>0?cur/avg:0;
+    volOk=volRatio>=0.8; // al menos 80% del volumen promedio
+  }
+
+  // Fibonacci: está el precio cerca de un nivel clave?
+  var fibConf=false,fibLevel=null;
+  if(fibs){
+    var near=fibNear(fibs,pr);
+    if(near&&near.key){fibConf=true;fibLevel=near;}
+  }
+
+  // SEÑAL COMPRAR: RSI sobrevendido + volumen ok
+  if(r<35&&volOk){
+    var str=fibConf?4:r<30?3:2; // más fuerte con confirmación Fibonacci o RSI muy bajo
+    var reason='RSI '+r.toFixed(1)+' (sobrevendido)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+' + Vol x'+volRatio.toFixed(1);
+    return{sig:'COMPRAR',cls:'c',icon:'▲',str:str,reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+
+  // SEÑAL VENDER: RSI sobrecomprado + volumen ok
+  if(r>65&&volOk){
+    var str=fibConf?4:r>70?3:2;
+    var reason='RSI '+r.toFixed(1)+' (sobrecomprado)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+' + Vol x'+volRatio.toFixed(1);
+    return{sig:'VENDER',cls:'v',icon:'▼',str:str,reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+
+  // ESPERAR — con motivo claro
+  var reason='';
+  if(r<35&&!volOk) reason='RSI sobrevendido pero volumen bajo (x'+volRatio.toFixed(1)+') — esperá confirmación';
+  else if(r>65&&!volOk) reason='RSI sobrecomprado pero volumen bajo (x'+volRatio.toFixed(1)+') — esperá confirmación';
+  else if(r>=35&&r<=65) reason='RSI en zona neutral ('+r.toFixed(1)+') — sin extremo claro';
+  else reason='Sin condiciones de entrada';
+
+  return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:reason,rsi:r,volRatio:volRatio};
+}
+
 function fmt(n,d){if(n===null||n===undefined)return'—';return n.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});}
 function fmtV(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
-function strLbl(s){return['Muy débil','Débil','Moderada','Fuerte','Muy fuerte'][s]||'';}
+function strLbl(s){return['','Moderada','Moderada','Fuerte','Muy fuerte · Fibonacci'][s]||'';}
 function checkVol(sym,vol){if(!volH[sym])volH[sym]=[];volH[sym].push(vol);if(volH[sym].length>30)volH[sym].shift();if(volH[sym].length<5)return{ok:true,lbl:null};var avg=volH[sym].reduce(function(a,b){return a+b;},0)/volH[sym].length;var ok=vol>=avg*0.6;return{ok:ok,lbl:ok?'alto':'bajo'};}
 function calcFib(cc){if(!cc||cc.length<10)return null;var r=cc.slice(-40);var hi=Math.max.apply(null,r.map(function(c){return c.h;}));var lo=Math.min.apply(null,r.map(function(c){return c.l;}));var range=hi-lo;if(range===0)return null;var up=r[r.length-1].c>=r[0].c;return FIB.map(function(f){return{pct:f,price:up?hi-f*range:lo+f*range,key:FIBKEY.indexOf(f)>=0};});}
 function fibNear(fibs,pr){if(!fibs)return null;for(var i=0;i<fibs.length;i++){if(Math.abs(fibs[i].price-pr)<=pr*0.003)return fibs[i];}return null;}
@@ -651,12 +706,15 @@ function renderCard(slot,idx){
   var pair=COINS[slot.coin];if(!pair)return'<div class="card">'+ctrl+'</div>';
   var cc=candles[pair.sym]||[];
   var closes=cc.map(function(c){return c.c;});
+  var volumes=cc.map(function(c){return c.v;});
   var pr=price[pair.sym]||0;
   var ch=change[pair.sym]||0;
   if(!closes.length||!pr)return'<div class="card">'+ctrl+'<div class="card-off"><span class="spin">↻</span><div class="card-off-txt">Cargando...</div></div></div>';
-  var r=rsi(closes),m=macd(closes),m20=sma(closes,20),m50=sma(closes,Math.min(50,closes.length));
-  var res=getSig(r,m,pr,m20);
+  var fibs=calcFib(cc);
+  var res=getSig(closes,volumes,pr,fibs);
   var sig=res.sig,cls=res.cls,icon=res.icon,str=res.str;
+  var m20=sma(closes,20),m50=sma(closes,Math.min(50,closes.length));
+  var r=rsi(closes);
   var d=pair.dec;
   var tp2=cls==='c'?pr*(1+TP):cls==='v'?pr*(1-TP):null;
   var sl2=cls==='c'?pr*(1-SL):cls==='v'?pr*(1+SL):null;
@@ -664,12 +722,28 @@ function renderCard(slot,idx){
   var vol=cc.length?cc[cc.length-1].v:0;
   var vr=checkVol(pair.sym,vol);var volOk=vr.ok,vl=vr.lbl;
   var ivLbl={'1m':'1 min','3m':'3 min','5m':'5 min'}[IV]||IV;
-  var fibs=calcFib(cc);var nf=fibNear(fibs,pr);
-  var conf=nf&&nf.key&&(sig==='COMPRAR'||sig==='VENDER');
+  var nf=res.fibConf?(fibNear(fibs,pr)):null;
+  var conf=res.fibConf&&(sig==='COMPRAR'||sig==='VENDER');
   var fibHTML='';
   if(fibs){var fbadge=nf?('<span class="fib-badge '+(nf.key?'nr':'kl')+'">'+(nf.key?'⬤ Nivel clave':'⬤ Cerca')+' '+(nf.pct*100).toFixed(1)+'%</span>'):'';var fitems=fibs.map(function(f){var isN=Math.abs(f.price-pr)<=pr*0.003;return'<div class="fib-item '+(isN?'fnr':f.key?'fkl':'')+'"><div class="fib-pct">'+(f.pct*100).toFixed(1)+'%</div><div class="fib-val">$'+fmt(f.price,d)+'</div></div>';}).join('');fibHTML='<div class="fib-sec"><div class="fib-title"><span>Fibonacci</span>'+fbadge+'</div><div class="fib-grid">'+fitems+'</div>'+(conf?'<div class="fib-conf">✓ Confluencia Fibonacci — señal reforzada</div>':'')+'</div>';}
-  var levHTML=(tp2&&sl2)?('<div class="levels"><div class="lv"><div class="ll">Entrada</div><div class="lv-val e">$'+fmt(pr,d)+'</div></div><div class="lv"><div class="ll">TP +'+tpP+'%</div><div class="lv-val t">$'+fmt(tp2,d)+'</div></div><div class="lv"><div class="ll">SL -'+slP+'%</div><div class="lv-val s">$'+fmt(sl2,d)+'</div></div></div>'+(volOk?'':'<div class="vol-warn">⚠ Volumen bajo — señal menos confiable</div>')):('<div class="no-sig">Sin señal clara — esperá confirmación</div>');
-  return'<div class="card sig-'+cls+'">'+ctrl+'<div class="card-top"><div class="coin-info"><div class="coin-icon '+pair.cls+'">'+pair.sym+'</div><div><div class="coin-name">'+pair.sym+'</div><div class="coin-iv">'+pair.id+' · '+ivLbl+'</div></div></div><div class="card-tr"><span class="chg '+(ch>=0?'pos':'neg')+'">'+(ch>=0?'+':'')+fmt(ch,2)+'%</span>'+(vl?'<span class="vbadge '+(vl==='alto'?'hi':'lo')+'">'+(vl==='alto'?'VOL ALTO':'VOL BAJO')+'</span>':'')+'</div></div><div class="price-row"><div class="price-main">$'+fmt(pr,d)+'</div><div class="price-lbl">PRECIO ACTUAL</div></div><div class="sig-block '+cls+'"><div class="sig-left"><span class="sig-icon">'+icon+'</span><div><div class="sig-lbl '+cls+'">'+sig+'</div><div class="sig-str '+cls+'">'+strLbl(str)+'</div></div></div><div><div class="str-wrap"><div class="str-bar '+cls+'" style="width:'+str*25+'%"></div></div></div></div>'+levHTML+fibHTML+'<div class="chart-wrap"><div class="chart-lbl"><span>Velas '+ivLbl+' · últimas 40</span><span>Vol: '+fmtV(vol)+'</span></div><canvas class="cc" id="cv'+idx+'"></canvas></div><div class="inds-title">Indicadores</div><div class="inds-grid"><div class="ind-row"><span class="ik">RSI(14)</span><span class="iv '+(r!==null?(r<35?'gn':r>65?'rd':''):'')+'">'+(r!==null?fmt(r,1):'—')+'</span></div><div class="ind-row"><span class="ik">MACD</span><span class="iv '+(m!==null?(m>0?'gn':'rd'):'')+'">'+(m!==null?(m>0?'+':'')+fmt(m,2):'—')+'</span></div><div class="ind-row"><span class="ik">MA20</span><span class="iv">$'+(m20!==null?fmt(m20,d):'—')+'</span></div><div class="ind-row"><span class="ik">MA50</span><span class="iv">$'+(m50!==null?fmt(m50,d):'—')+'</span></div></div><div class="card-foot"><a class="bin-link" href="https://www.binance.com/en/trade/'+pair.id.replace('USDT','_USDT')+'" target="_blank">Abrir en Binance →</a></div></div>';
+  var levHTML=(tp2&&sl2)?('<div class="levels"><div class="lv"><div class="ll">Entrada</div><div class="lv-val e">$'+fmt(pr,d)+'</div></div><div class="lv"><div class="ll">TP +'+tpP+'%</div><div class="lv-val t">$'+fmt(tp2,d)+'</div></div><div class="lv"><div class="ll">SL -'+slP+'%</div><div class="lv-val s">$'+fmt(sl2,d)+'</div></div></div>'):('<div class="no-sig">'+(res.reason||'Sin señal — esperá condiciones')+'</div>');
+  var volRatioTxt=res.volRatio?'x'+res.volRatio.toFixed(1):'—';
+  return'<div class="card sig-'+cls+'">'+ctrl
+    +'<div class="card-top"><div class="coin-info"><div class="coin-icon '+pair.cls+'">'+pair.sym+'</div><div><div class="coin-name">'+pair.sym+'</div><div class="coin-iv">'+pair.id+' · '+ivLbl+'</div></div></div>'
+    +'<div class="card-tr"><span class="chg '+(ch>=0?'pos':'neg')+'">'+(ch>=0?'+':'')+fmt(ch,2)+'%</span>'+(vl?'<span class="vbadge '+(vl==='alto'?'hi':'lo')+'">'+(vl==='alto'?'VOL ALTO':'VOL BAJO')+'</span>':'')+'</div></div>'
+    +'<div class="price-row"><div class="price-main">$'+fmt(pr,d)+'</div><div class="price-lbl">PRECIO ACTUAL</div></div>'
+    +'<div class="sig-block '+cls+'"><div class="sig-left"><span class="sig-icon">'+icon+'</span><div><div class="sig-lbl '+cls+'">'+sig+'</div><div class="sig-str '+cls+'">'+strLbl(str)+'</div></div></div><div><div class="str-wrap"><div class="str-bar '+cls+'" style="width:'+str*25+'%"></div></div></div></div>'
+    +levHTML+fibHTML
+    +'<div class="chart-wrap"><div class="chart-lbl"><span>Velas '+ivLbl+' · últimas 40</span><span>Vol: '+fmtV(vol)+'</span></div><canvas class="cc" id="cv'+idx+'"></canvas></div>'
+    +'<div class="inds-title">Indicadores</div>'
+    +'<div class="inds-grid">'
+    +'<div class="ind-row"><span class="ik">RSI(14)</span><span class="iv '+(r!==null?(r<35?'gn':r>65?'rd':''):'')+'">'+(r!==null?fmt(r,1):'—')+'</span></div>'
+    +'<div class="ind-row"><span class="ik">Vol ratio</span><span class="iv '+(res.volRatio>=0.8?'gn':'rd')+'">'+volRatioTxt+'</span></div>'
+    +'<div class="ind-row"><span class="ik">MA20</span><span class="iv">$'+(m20!==null?fmt(m20,d):'—')+'</span></div>'
+    +'<div class="ind-row"><span class="ik">MA50</span><span class="iv">$'+(m50!==null?fmt(m50,d):'—')+'</span></div>'
+    +'</div>'
+    +'<div class="card-foot"><a class="bin-link" href="https://www.binance.com/en/trade/'+pair.id.replace('USDT','_USDT')+'" target="_blank">Abrir en Binance →</a></div>'
+    +'</div>';
 }
 
 function getUniq(){var seen={};slots.forEach(function(s){seen[s.coin]=true;});return Object.keys(seen).map(function(k){return COINS[k];}).filter(Boolean);}
@@ -677,7 +751,7 @@ function getUniq(){var seen={};slots.forEach(function(s){seen[s.coin]=true;});re
 function renderAll(){
   var html=slots.map(function(s,i){return renderCard(s,i);}).join('');
   document.getElementById('cards').innerHTML=html;
-  requestAnimationFrame(function(){slots.forEach(function(s,i){if(!s.on)return;var pair=COINS[s.coin];if(!pair)return;var cc=candles[pair.sym]||[];var closes=cc.map(function(c){return c.c;});var pr=price[pair.sym]||0;if(!closes.length||!pr)return;var res=getSig(rsi(closes),macd(closes),pr,sma(closes,20));drawChart('cv'+i,cc,res.cls);});});
+  requestAnimationFrame(function(){slots.forEach(function(s,i){if(!s.on)return;var pair=COINS[s.coin];if(!pair)return;var cc=candles[pair.sym]||[];var closes=cc.map(function(c){return c.c;});var volumes=cc.map(function(c){return c.v;});var pr=price[pair.sym]||0;if(!closes.length||!pr)return;var fibs=calcFib(cc);var res=getSig(closes,volumes,pr,fibs);drawChart('cv'+i,cc,res.cls);});});
   updateSim();checkSignals();renderOps();
   document.getElementById('updInfo').textContent='actualizado '+new Date().toLocaleTimeString('es-AR');
 }
@@ -685,9 +759,13 @@ function renderAll(){
 function checkSignals(){
   slots.forEach(function(s){
     if(!s.on)return;var pair=COINS[s.coin];if(!pair)return;
-    var cc=candles[pair.sym]||[];var closes=cc.map(function(c){return c.c;});var pr=price[pair.sym]||0;
+    var cc=candles[pair.sym]||[];
+    var closes=cc.map(function(c){return c.c;});
+    var volumes=cc.map(function(c){return c.v;});
+    var pr=price[pair.sym]||0;
     if(!closes.length||!pr)return;
-    var res=getSig(rsi(closes),macd(closes),pr,sma(closes,20));
+    var fibs=calcFib(cc);
+    var res=getSig(closes,volumes,pr,fibs);
     var vol=cc.length?cc[cc.length-1].v:0;var vr=checkVol(pair.sym,vol);
     var prev=prevSig[pair.sym];
     if(prev!==undefined&&prev!==res.sig&&(res.sig==='COMPRAR'||res.sig==='VENDER')){sendAlert(pair.sym,res.sig,pr,pair.dec,vr.ok);addLog(pair.sym,pair.cls,res.sig,pr,pair.dec,vr.ok);}
