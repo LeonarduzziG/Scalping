@@ -600,59 +600,113 @@ function rsi(c,p){p=p||14;if(c.length<p+1)return null;var g=0,l=0,s=c.slice(c.le
 function macd(c){var e12=ema(c,12),e26=ema(c,26);if(!e12||!e26)return null;return e12-e26;}
 function sma(c,p){if(c.length<p)return null;return c.slice(-p).reduce(function(a,b){return a+b;},0)/p;}
 
-// NUEVO SISTEMA DE SEÑALES: RSI + Volumen como base, Fibonacci como confirmación
+// SISTEMA DE SEÑALES v3
+// RSI como detector de dirección (no necesita extremos)
+// Fibonacci como soporte/resistencia real
+// Volumen como confirmación (no bloqueante)
 // Reglas:
-//   COMPRAR: RSI < 35 (sobrevendido) + volumen sobre promedio
-//   VENDER:  RSI > 65 (sobrecomprado) + volumen sobre promedio
-//   ESPERAR: todo lo demás — incluso si RSI dice algo pero el volumen es bajo
-// Fibonacci: si el precio está en un nivel clave (38.2%, 50%, 61.8%), la señal se confirma
-// Resultado: menos señales, pero cada una que aparece tiene respaldo real
+//   COMPRAR: RSI bajando y entre 30-52 + precio cerca de nivel Fibonacci clave O RSI < 35 con cualquier volumen
+//   VENDER:  RSI subiendo y entre 48-70 + precio cerca de nivel Fibonacci clave O RSI > 65 con cualquier volumen
+//   En ambos casos, volumen alto sube la fuerza de la señal pero no la bloquea
 
 function getSig(closes,volumes,pr,fibs){
-  // necesitamos al menos 15 cierres
   if(!closes||closes.length<15||!pr) return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:'Datos insuficientes'};
 
   var r=rsi(closes);
   if(r===null) return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:'Calculando RSI...'};
 
-  // volumen: comparar última vela con promedio de 20
-  var volOk=false,volRatio=0;
+  // dirección del RSI: comparar últimos 3 valores
+  var rsiDir=0;
+  if(closes.length>=17){
+    var r1=rsi(closes.slice(0,-1));
+    var r2=rsi(closes.slice(0,-2));
+    if(r1!==null&&r2!==null){
+      rsiDir=r<r1&&r1<r2?-1:r>r1&&r1>r2?1:0; // -1 bajando, 1 subiendo
+    }
+  }
+
+  // volumen: ratio respecto al promedio de 20 velas
+  var volRatio=1;
   if(volumes&&volumes.length>=5){
     var avg=volumes.slice(-20).reduce(function(a,b){return a+b;},0)/Math.min(20,volumes.length);
     var cur=volumes[volumes.length-1];
-    volRatio=avg>0?cur/avg:0;
-    volOk=volRatio>=0.8; // al menos 80% del volumen promedio
+    volRatio=avg>0?cur/avg:1;
   }
+  var volOk=volRatio>=0.8;
 
-  // Fibonacci: está el precio cerca de un nivel clave?
-  var fibConf=false,fibLevel=null;
+  // Fibonacci: precio cerca de nivel clave?
+  var fibConf=false,fibLevel=null,fibNearAny=false;
   if(fibs){
     var near=fibNear(fibs,pr);
-    if(near&&near.key){fibConf=true;fibLevel=near;}
+    if(near){
+      fibNearAny=true;
+      if(near.key){fibConf=true;fibLevel=near;}
+    }
   }
 
-  // SEÑAL COMPRAR: RSI sobrevendido + volumen ok
-  if(r<35&&volOk){
-    var str=fibConf?4:r<30?3:2; // más fuerte con confirmación Fibonacci o RSI muy bajo
-    var reason='RSI '+r.toFixed(1)+' (sobrevendido)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+' + Vol x'+volRatio.toFixed(1);
-    return{sig:'COMPRAR',cls:'c',icon:'▲',str:str,reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  // FUERZA base: empieza en 1, suma según condiciones
+  var str=1;
+
+  // COMPRAR
+  // Caso A: RSI extremo bajo (< 35) — señal directa sin necesitar Fibonacci
+  if(r<35){
+    str=2;
+    if(volOk)str++;
+    if(fibConf)str=4;
+    var reason='RSI '+r.toFixed(1)+' (sobrevendido)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+(volOk?' + Vol x'+volRatio.toFixed(1):'');
+    return{sig:'COMPRAR',cls:'c',icon:'▲',str:Math.min(str,4),reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+  // Caso B: RSI en zona 30-52 bajando + Fibonacci como soporte
+  if(r>=30&&r<=52&&rsiDir===-1&&fibConf){
+    str=2;
+    if(volOk)str++;
+    if(r<45)str++;
+    var reason='RSI '+r.toFixed(1)+' bajando + soporte Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%'+(volOk?' + Vol x'+volRatio.toFixed(1):'');
+    return{sig:'COMPRAR',cls:'c',icon:'▲',str:Math.min(str,4),reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+  // Caso C: RSI bajo (30-42) bajando aunque no haya Fibonacci — mercado sobrevendido
+  if(r>=30&&r<=42&&rsiDir===-1&&volOk){
+    str=2;
+    if(r<38)str++;
+    var reason='RSI '+r.toFixed(1)+' bajando con volumen x'+volRatio.toFixed(1);
+    return{sig:'COMPRAR',cls:'c',icon:'▲',str:Math.min(str,3),reason:reason,rsi:r,volRatio:volRatio,fibConf:false};
   }
 
-  // SEÑAL VENDER: RSI sobrecomprado + volumen ok
-  if(r>65&&volOk){
-    var str=fibConf?4:r>70?3:2;
-    var reason='RSI '+r.toFixed(1)+' (sobrecomprado)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+' + Vol x'+volRatio.toFixed(1);
-    return{sig:'VENDER',cls:'v',icon:'▼',str:str,reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  // VENDER
+  // Caso A: RSI extremo alto (> 65) — señal directa
+  if(r>65){
+    str=2;
+    if(volOk)str++;
+    if(fibConf)str=4;
+    var reason='RSI '+r.toFixed(1)+' (sobrecomprado)'+(fibConf?' + Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%':'')+(volOk?' + Vol x'+volRatio.toFixed(1):'');
+    return{sig:'VENDER',cls:'v',icon:'▼',str:Math.min(str,4),reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+  // Caso B: RSI en zona 48-70 subiendo + Fibonacci como resistencia
+  if(r>=48&&r<=70&&rsiDir===1&&fibConf){
+    str=2;
+    if(volOk)str++;
+    if(r>55)str++;
+    var reason='RSI '+r.toFixed(1)+' subiendo + resistencia Fibonacci '+((fibLevel.pct*100).toFixed(1))+'%'+(volOk?' + Vol x'+volRatio.toFixed(1):'');
+    return{sig:'VENDER',cls:'v',icon:'▼',str:Math.min(str,4),reason:reason,rsi:r,volRatio:volRatio,fibConf:fibConf};
+  }
+  // Caso C: RSI alto (58-70) subiendo aunque no haya Fibonacci
+  if(r>=58&&r<=70&&rsiDir===1&&volOk){
+    str=2;
+    if(r>62)str++;
+    var reason='RSI '+r.toFixed(1)+' subiendo con volumen x'+volRatio.toFixed(1);
+    return{sig:'VENDER',cls:'v',icon:'▼',str:Math.min(str,3),reason:reason,rsi:r,volRatio:volRatio,fibConf:false};
   }
 
-  // ESPERAR — con motivo claro
+  // ESPERAR — explicación clara
   var reason='';
-  if(r<35&&!volOk) reason='RSI sobrevendido pero volumen bajo (x'+volRatio.toFixed(1)+') — esperá confirmación';
-  else if(r>65&&!volOk) reason='RSI sobrecomprado pero volumen bajo (x'+volRatio.toFixed(1)+') — esperá confirmación';
-  else if(r>=35&&r<=65) reason='RSI en zona neutral ('+r.toFixed(1)+') — sin extremo claro';
-  else reason='Sin condiciones de entrada';
+  if(r<35&&!volOk) reason='RSI sobrevendido pero volumen muy bajo — esperá';
+  else if(r>65&&!volOk) reason='RSI sobrecomprado pero volumen muy bajo — esperá';
+  else if(r>=30&&r<=52&&rsiDir===-1&&!fibConf) reason='RSI bajando ('+r.toFixed(1)+') pero sin soporte Fibonacci cercano';
+  else if(r>=48&&r<=70&&rsiDir===1&&!fibConf) reason='RSI subiendo ('+r.toFixed(1)+') pero sin resistencia Fibonacci cercana';
+  else if(rsiDir===0) reason='RSI lateral ('+r.toFixed(1)+') — sin dirección clara';
+  else reason='RSI en zona neutral ('+r.toFixed(1)+') — esperá un extremo o soporte Fibonacci';
 
-  return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:reason,rsi:r,volRatio:volRatio};
+  return{sig:'ESPERAR',cls:'e',icon:'◆',str:0,reason:reason,rsi:r,volRatio:volRatio,fibConf:false};
 }
 
 function fmt(n,d){if(n===null||n===undefined)return'—';return n.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});}
